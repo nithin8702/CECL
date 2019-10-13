@@ -1,3 +1,6 @@
+# sudo sed -i -e '$a\export PYSPARK_PYTHON=/usr/bin/python3' /etc/spark/conf/spark-env.sh
+# PYTHONPATH=/usr/bin/python3
+# spark-submit --py-files s3://nithin-emr/test5/data.zip,s3://nithin-emr/test5/config.ini s3://nithin-emr/test5/word_count_emr.py
 #import os
 #print('main called')
 #arr = os.listdir(os.getcwd())
