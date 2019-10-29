@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Oct 28 15:58:46 2019
+
+@author: nithin
+"""
+
+import pandas as pd
+from IPython.display import display # Allows the use of display() for DataFrames
+import matplotlib.pyplot as plt
+from pyspark.ml import Pipeline, PipelineModel
+from pyspark.ml.classification import LogisticRegression
+from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler
+from pyspark.sql import SparkSession
+
+spark = SparkSession.builder.appName('abc').getOrCreate()
+
+dataset = spark.read.option('header', True).option('inferSchema', True).csv("./credit_cards_dataset.csv")
+dataset = dataset.withColumnRenamed("default.payment.next.month", "default payment next month")
+
+display(dataset.show(3))
+
+cols = dataset.columns
+
+
+categoricalColumns = ["SEX", "EDUCATION", "MARRIAGE"]
+stages = [] # stages in our Pipeline
+for categoricalCol in categoricalColumns:
+    # Category Indexing with StringIndexer
+    stringIndexer = StringIndexer(inputCol=categoricalCol, outputCol=categoricalCol + "Index")
+    # Use OneHotEncoder to convert categorical variables into binary SparseVectors
+    # encoder = OneHotEncoderEstimator(inputCol=categoricalCol + "Index", outputCol=categoricalCol + "classVec")
+    encoder = OneHotEncoderEstimator(inputCols=[stringIndexer.getOutputCol()], outputCols=[categoricalCol + "classVec"])
+    # Add stages.  These are not run here, but will run all at once later on.
+    stages += [stringIndexer, encoder]
+    
+# Convert label into label indices using the StringIndexer
+label_stringIdx = StringIndexer(inputCol="default payment next month", outputCol="label")
+stages += [label_stringIdx]
+
+# Transform all features into a vector using VectorAssembler
+numericCols = ["LIMIT_BAL", "AGE", "PAY_0", "PAY_2", "PAY_3", "PAY_3","PAY_4","PAY_5","PAY_6",'BILL_AMT1',
+ 'BILL_AMT2',
+ 'BILL_AMT3',
+ 'BILL_AMT4',
+ 'BILL_AMT5',
+ 'BILL_AMT6',
+ 'PAY_AMT1',
+ 'PAY_AMT2',
+ 'PAY_AMT3',
+ 'PAY_AMT4',
+ 'PAY_AMT5',
+ 'PAY_AMT6']
+assemblerInputs = [c + "classVec" for c in categoricalColumns] + numericCols
+assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features")
+stages += [assembler]
+
+
+
+
+from pyspark.ml.classification import LogisticRegression
+  
+partialPipeline = Pipeline().setStages(stages)
+pipelineModel = partialPipeline.fit(dataset)
+preppedDataDF = pipelineModel.transform(dataset)
+
+
+
+
+lrModel = LogisticRegression().fit(preppedDataDF)
+
+display(lrModel, preppedDataDF, "ROC")
+display(lrModel, preppedDataDF)
+
+
+
+selectedcols = ["label", "features"] + cols
+dataset = preppedDataDF.select(selectedcols)
+display(dataset)
+
+
+path = 'tmp/spark-logistic-regression-model2'
+pipelineModel.save(path)
+
+
+sameModel = PipelineModel.load(path)
+
+
+test = dataset.take(2)
+prediction = sameModel.transform(test)
+selected = prediction.select("id", "text", "probability", "prediction")
+selected.show(3)
+for row in selected.collect():
+    rid, text, prob, prediction = row
+    print("(%d, %s) --> prob=%s, prediction=%f" % (rid, text, str(prob), prediction))
