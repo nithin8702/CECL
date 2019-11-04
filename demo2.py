@@ -6,6 +6,8 @@ Created on Mon Oct 28 15:58:46 2019
 @author: nithin
 """
 # https://docs.databricks.com/applications/machine-learning/mllib/binary-classification-mllib-pipelines.html
+# https://medium.com/@dhiraj.p.rai/logistic-regression-in-spark-ml-8a95b5f5434c
+# https://datascience-enthusiast.com/Python/PySpark_ML_with_Text_part1.html
 
 import pandas as pd
 from IPython.display import display # Allows the use of display() for DataFrames
@@ -14,11 +16,26 @@ from pyspark.ml import Pipeline, PipelineModel
 from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler
 from pyspark.sql import SparkSession
-
+from pyspark.sql.functions import when
 spark = SparkSession.builder.appName('abc').getOrCreate()
 
-dataset = spark.read.option('header', True).option('inferSchema', True).csv("./credit_cards_dataset.csv")
-dataset = dataset.withColumnRenamed("default.payment.next.month", "default payment next month")
+dataset = spark.read.option('header', True).option('inferSchema', True).csv("./train.csv")
+dataset = dataset.withColumnRenamed("default.payment.next.month", "default_payment_next_month")
+dataset = dataset.drop('ID')
+
+
+dataset_size=float(dataset.select("default_payment_next_month").count())
+numPositives=dataset.select("default_payment_next_month").where("default_payment_next_month == 1").count()
+per_ones=(float(numPositives)/float(dataset_size))*100
+numNegatives=float(dataset_size-numPositives)
+print('The number of ones are {}'.format(numPositives))
+print('Percentage of ones are {}'.format(per_ones))
+
+BalancingRatio= numNegatives/dataset_size
+print('BalancingRatio = {}'.format(BalancingRatio))
+
+dataset=dataset.withColumn("classWeights", when(dataset.default_payment_next_month == 1,BalancingRatio).otherwise(1-BalancingRatio))
+dataset.select("classWeights").show(5)
 
 display(dataset.show(3))
 
@@ -61,43 +78,59 @@ stages += [assembler]
 
 
 from pyspark.ml.classification import LogisticRegression
-  
+
+lrModel = LogisticRegression(maxIter=10, regParam=0.01)
+stages.append(lrModel)
 partialPipeline = Pipeline().setStages(stages)
 pipelineModel = partialPipeline.fit(dataset)
-preppedDataDF = pipelineModel.transform(dataset)
+#preppedDataDF = pipelineModel.transform(dataset)
 
 
 
 
-lrModel = LogisticRegression().fit(preppedDataDF)
 
-display(lrModel, preppedDataDF, "ROC")
-display(lrModel, preppedDataDF)
-
-
-
-selectedcols = ["label", "features"] + cols
-dataset = preppedDataDF.select(selectedcols)
-display(dataset)
+#
+#display(lrModel, preppedDataDF, "ROC")
+#display(lrModel, preppedDataDF)
 
 
-path = 'tmp/spark-logistic-regression-model3'
+#preppedDataDF.show(3)
+
+#selectedcols = ["label", "features"] + cols
+#dataset = preppedDataDF.select(selectedcols)
+#display(dataset)
+
+
+path = 'tmp/spark-logistic-regression-model1'
 pipelineModel.save(path)
 
 
 sameModel = PipelineModel.load(path)
 
 
-test = spark.read.option('header', True).option('inferSchema', True).csv("./credit_cards_dataset.csv")
-test = test.take(2)
+test = spark.read.option('header', True).option('inferSchema', True).csv("./test.csv")
+test = test.withColumnRenamed("default.payment.next.month", "default payment next month")
 test.show(2)
-test = spark.createDataFrame(test)
-test.columns
-test = test.drop('default payment next month').collect()
 
 prediction = sameModel.transform(test)
-selected = prediction.select("id", "text", "probability", "prediction")
+prediction.show(3)
+prediction.printSchema
+selected = prediction.select("ID","default payment next month", "prediction", "probability")
 selected.show(3)
+selected.printSchema
 for row in selected.collect():
-    rid, text, prob, prediction = row
-    print("(%d, %s) --> prob=%s, prediction=%f" % (rid, text, str(prob), prediction))
+    rid, prob, prediction = row
+    print("(%d) --> prob=%s, prediction=%f" % (rid, str(prob), prediction))
+
+
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+import pyspark.sql.functions as F
+import pyspark.sql.types as T
+
+prob_extract = F.udf(lambda x : float(x[1]), T.FloatType())
+print(prediction.withColumn("prob1",prob_extract("probability")).select("prob1","prediction").show())
+
+evaluator = BinaryClassificationEvaluator(rawPredictionCol='rawPrediction', metricName = "areaUnderROC", labelCol='default payment next month')
+evaluator.evaluate(prediction)
+
+prediction.groupBy('default payment next month','prediction').count().show()
