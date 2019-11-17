@@ -8,6 +8,7 @@ Created on Mon Oct 28 15:58:46 2019
 # https://docs.databricks.com/applications/machine-learning/mllib/binary-classification-mllib-pipelines.html
 # https://medium.com/@dhiraj.p.rai/logistic-regression-in-spark-ml-8a95b5f5434c
 # https://datascience-enthusiast.com/Python/PySpark_ML_with_Text_part1.html
+# https://datascience-enthusiast.com/Python/ROC_Precision-Recall.html
 
 import pandas as pd
 from IPython.display import display # Allows the use of display() for DataFrames
@@ -54,7 +55,7 @@ for categoricalCol in categoricalColumns:
     stages += [stringIndexer, encoder]
     
 # Convert label into label indices using the StringIndexer
-label_stringIdx = StringIndexer(inputCol="default payment next month", outputCol="label")
+label_stringIdx = StringIndexer(inputCol="default_payment_next_month", outputCol="label")
 stages += [label_stringIdx]
 
 # Transform all features into a vector using VectorAssembler
@@ -77,9 +78,9 @@ stages += [assembler]
 
 
 
-from pyspark.ml.classification import LogisticRegression
+#from pyspark.ml.classification import LogisticRegression
 
-lrModel = LogisticRegression(maxIter=10, regParam=0.01)
+lrModel = LogisticRegression(maxIter=10, regParam=0.01, weightCol="classWeights")
 stages.append(lrModel)
 partialPipeline = Pipeline().setStages(stages)
 pipelineModel = partialPipeline.fit(dataset)
@@ -101,7 +102,7 @@ pipelineModel = partialPipeline.fit(dataset)
 #display(dataset)
 
 
-path = 'tmp/spark-logistic-regression-model1'
+path = 'tmp/spark-logistic-regression-model6'
 pipelineModel.save(path)
 
 
@@ -109,18 +110,19 @@ sameModel = PipelineModel.load(path)
 
 
 test = spark.read.option('header', True).option('inferSchema', True).csv("./test.csv")
-test = test.withColumnRenamed("default.payment.next.month", "default payment next month")
+test = test.withColumnRenamed("default.payment.next.month", "default_payment_next_month")
 test.show(2)
 
 prediction = sameModel.transform(test)
 prediction.show(3)
 prediction.printSchema
-selected = prediction.select("ID","default payment next month", "prediction", "probability")
-selected.show(3)
+selected = prediction.select("ID","default_payment_next_month", "rawPrediction", "probability")
+selected.show(1)
 selected.printSchema
-for row in selected.collect():
-    rid, prob, prediction = row
-    print("(%d) --> prob=%s, prediction=%f" % (rid, str(prob), prediction))
+#for row in selected.collect():
+#    rid, actual, prob, prediction = row
+#    print((rid, actual, prob, prediction))
+
 
 
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
@@ -128,9 +130,9 @@ import pyspark.sql.functions as F
 import pyspark.sql.types as T
 
 prob_extract = F.udf(lambda x : float(x[1]), T.FloatType())
-print(prediction.withColumn("prob1",prob_extract("probability")).select("prob1","prediction").show())
+#print(prediction.withColumn("prob1",prob_extract("probability")).select("prob1","prediction").show())
 
-evaluator = BinaryClassificationEvaluator(rawPredictionCol='rawPrediction', metricName = "areaUnderROC", labelCol='default payment next month')
-evaluator.evaluate(prediction)
+evaluator = BinaryClassificationEvaluator(rawPredictionCol='rawPrediction', metricName = "areaUnderROC", labelCol='default_payment_next_month')
+print('Evaluator : ' + str(evaluator.evaluate(prediction))) # 0.7294563666075892
 
-prediction.groupBy('default payment next month','prediction').count().show()
+prediction.groupBy('default_payment_next_month','prediction').count().show()
