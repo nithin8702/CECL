@@ -109,17 +109,19 @@ class DataSource:
         print('------------------JSON file--------------------------------------------------------------------------------------------------------------------------')
         inputFile = 'config.json'
 #        print(os.environ)
-        print(os.environ['SPARK_YARN_STAGING_DIR'])
+#        print(os.environ['SPARK_YARN_STAGING_DIR'])
 #        print('os.environ completed')
         print(SparkFiles.getRootDirectory())
         ipath = os.path.join(SparkFiles.getRootDirectory() + '/' + inputFile)
         print(ipath)
         conString = ''
         
-#        a = sc.textFile("file:///" + SparkFiles.get(inputFile)).collect()
-#        print(a)
-#        b= sc.textFile("file:///" + ipath).collect()
-#        print(b)
+        print('-----------------------------------------------------------printing a------------------------------------------------------------')
+        a = sc.textFile("file:///" + SparkFiles.get(inputFile)).collect()
+        print(a)
+        print('-----------------------------------------------------------printing b------------------------------------------------------------')
+        b= sc.textFile("file:///" + ipath).collect()
+        print(b)
 #        
         
         
