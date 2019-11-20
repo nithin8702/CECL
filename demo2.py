@@ -15,7 +15,8 @@ from IPython.display import display # Allows the use of display() for DataFrames
 import matplotlib.pyplot as plt
 from pyspark.ml import Pipeline, PipelineModel
 from pyspark.ml.classification import LogisticRegression, GBTClassifier, RandomForestClassifier
-from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler
+from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler, StandardScaler
+from pyspark.mllib.evaluation import BinaryClassificationMetrics, MulticlassMetrics
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import when
 spark = SparkSession.builder.appName('abc').getOrCreate()
@@ -75,8 +76,15 @@ numericCols = ["LIMIT_BAL", "AGE", "PAY_0", "PAY_2", "PAY_3", "PAY_3","PAY_4","P
  'PAY_AMT5',
  'PAY_AMT6']
 assemblerInputs = [c + "classVec" for c in categoricalColumns] + numericCols
-assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="features")
-stages += [assembler]
+assembler = VectorAssembler(inputCols=assemblerInputs, outputCol="_features")
+
+
+# Standardize Features
+scaler = StandardScaler(inputCol='_features', outputCol='features', withStd=True, withMean=False)
+
+
+stages += [assembler, scaler]
+#stages += [scaler]
 
 
 
@@ -84,8 +92,8 @@ stages += [assembler]
 #from pyspark.ml.classification import LogisticRegression
 
 #model = LogisticRegression(maxIter=10, regParam=0.01, weightCol="classWeights")
-#model = GBTClassifier(maxIter=15)
-model = RandomForestClassifier()
+model = GBTClassifier(maxIter=15)
+#model = RandomForestClassifier()
 
 
 stages.append(model)
@@ -140,6 +148,32 @@ prob_extract = F.udf(lambda x : float(x[1]), T.FloatType())
 #print(prediction.withColumn("prob1",prob_extract("probability")).select("prob1","prediction").show())
 
 evaluator = BinaryClassificationEvaluator(rawPredictionCol='rawPrediction', metricName = "areaUnderROC", labelCol='default_payment_next_month')
-print('Evaluator : ' + str(evaluator.evaluate(prediction))) # 0.7294563666075892
+print('Evaluator areaUnderROC: ' + str(evaluator.evaluate(prediction))) # 0.7294563666075892
+
+evaluator = BinaryClassificationEvaluator(rawPredictionCol='rawPrediction', metricName = "areaUnderPR", labelCol='default_payment_next_month')
+print('Evaluator areaUnderPR : ' + str(evaluator.evaluate(prediction))) # 0.7294563666075892
+
 
 prediction.groupBy('default_payment_next_month','prediction').count().show()
+
+
+# Metrics
+predictionRDD = prediction.select(['label', 'prediction']) \
+                            .rdd.map(lambda line: (line[1], line[0]))
+metrics = MulticlassMetrics(predictionRDD)
+    # Confusion Matrix
+print(metrics.confusionMatrix().toArray())
+
+
+print('---------------------------Overall statistics------------------------')
+print('precision : ' + str(metrics.precision()))
+print('recall : ' + str(metrics.recall()))
+print('fMeasure : ' + str(metrics.fMeasure()))
+
+
+print('---------------------------statistics by class------------------------')
+labels = [0.0, 1.0]
+for label in sorted(labels):
+    print('precision : ' + str(metrics.precision(label)))
+    print('recall : ' + str(metrics.recall(label)))
+    print('fMeasure : ' + str(metrics.fMeasure(label, beta=1.0)))
