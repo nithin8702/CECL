@@ -14,11 +14,14 @@ import pandas as pd
 from IPython.display import display # Allows the use of display() for DataFrames
 import matplotlib.pyplot as plt
 from pyspark.ml import Pipeline, PipelineModel
-from pyspark.ml.classification import LogisticRegression
+from pyspark.ml.classification import LogisticRegression, GBTClassifier, RandomForestClassifier
 from pyspark.ml.feature import OneHotEncoderEstimator, StringIndexer, VectorAssembler
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import when
 spark = SparkSession.builder.appName('abc').getOrCreate()
+from datetime import datetime
+
+ti = datetime.now().strftime('%Y%m%d%m%S')
 
 dataset = spark.read.option('header', True).option('inferSchema', True).csv("./train.csv")
 dataset = dataset.withColumnRenamed("default.payment.next.month", "default_payment_next_month")
@@ -80,8 +83,12 @@ stages += [assembler]
 
 #from pyspark.ml.classification import LogisticRegression
 
-lrModel = LogisticRegression(maxIter=10, regParam=0.01, weightCol="classWeights")
-stages.append(lrModel)
+#model = LogisticRegression(maxIter=10, regParam=0.01, weightCol="classWeights")
+#model = GBTClassifier(maxIter=15)
+model = RandomForestClassifier()
+
+
+stages.append(model)
 partialPipeline = Pipeline().setStages(stages)
 pipelineModel = partialPipeline.fit(dataset)
 #preppedDataDF = pipelineModel.transform(dataset)
@@ -102,7 +109,7 @@ pipelineModel = partialPipeline.fit(dataset)
 #display(dataset)
 
 
-path = 'tmp/spark-logistic-regression-model6'
+path = 'tmp/' + ti
 pipelineModel.save(path)
 
 
